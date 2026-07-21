@@ -1,0 +1,13 @@
+{
+  "name": "kiss-art-server",
+  "version": "1.0.0",
+  "description": "WebSocket Server for Dual-Device Interaction Art",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.16.0"
+  }
+}
