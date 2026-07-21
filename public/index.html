@@ -3,37 +3,76 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kiss, or Dual Monitors - 控制台</title>
+  <title>Kiss, or Dual Monitors</title>
   <style>
-    body { font-family: sans-serif; background: #111; color: #eee; padding: 20px; text-align: center; }
-    button { width: 100%; max-width: 300px; padding: 15px; margin: 10px 0; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #000; color: #fff; padding: 20px; text-align: center; }
+    .card { background: #181818; border-radius: 12px; padding: 20px; margin: 15px auto; max-width: 400px; border: 1px solid #333; }
+    .role-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 14px; font-weight: bold; background: #333; color: #00f0ff; margin-bottom: 10px; }
+    button { width: 100%; padding: 16px; margin: 8px 0; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: opacity 0.2s; }
+    button:active { opacity: 0.7; }
     .btn-vibrate { background: #e74c3c; color: white; }
     .btn-green { background: #2ecc71; color: white; }
     .btn-red { background: #e67e22; color: white; }
-    #status { margin-top: 20px; color: #888; font-size: 14px; }
+    .btn-unlock { background: #3498db; color: white; font-size: 18px; padding: 20px; margin-top: 10px; }
+    #status { margin-top: 15px; color: #888; font-size: 13px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
 
-  <h2> Kiss, or Dual Monitors </h2>
-  <p>设备模式：<span id="role-text">等待连接...</span></p>
+  <h2>Kiss, or Dual Monitors</h2>
+  
+  <div class="card">
+    <div>当前模式：<span id="role-text" class="role-badge">读取中...</span></div>
+    <div id="status">正在连接云端服务器...</div>
+  </div>
 
-  <hr style="border-color: #333; margin: 20px 0;">
+  <!-- 展场模式特有：点击解锁浏览器震动限制 -->
+  <div id="display-panel" class="card hidden">
+    <h3 style="color: #ff0055;">展场接收端状态</h3>
+    <p style="color: #aaa; font-size: 14px;">请点击下方按钮一次，以解锁安卓浏览器的底层自动震动权限：</p>
+    <button class="btn-unlock" onclick="enableVibration()">点击激活展场设备</button>
+    <p id="unlock-status" style="color: #2ecc71; font-size: 13px; margin-top: 10px; display: none;">✅ 设备已解锁，静置等待指令即可</p>
+  </div>
 
-  <!-- 控制端按钮 -->
-  <h3>观众/控制端操作面板</h3>
-  <button class="btn-vibrate" onclick="sendCommand('VIBRATE_PHONE')">触感脉冲 (手机震动)</button>
-  <button class="btn-green" onclick="sendCommand('HEART_GREEN')">寻脉光波 (手环绿光)</button>
-  <button class="btn-red" onclick="sendCommand('SPO2_RED')">血氧检测 (手环红光)</button>
+  <!-- 控制端特有：发送指令 -->
+  <div id="control-panel" class="card hidden">
+    <h3>观众 / 控制端面板</h3>
+    <button class="btn-vibrate" onclick="sendCommand('VIBRATE_PHONE')">触感脉冲 (手机震动)</button>
+    <button class="btn-green" onclick="sendCommand('HEART_GREEN')">寻脉光波 (手环绿光)</button>
+    <button class="btn-red" onclick="sendCommand('SPO2_RED')">血氧检测 (手环红光)</button>
+  </div>
 
-  <div id="status">WebSocket 连接中...</div>
+  <!-- 底部手动切换模式 -->
+  <div style="margin-top: 30px; font-size: 12px; color: #555;">
+    快速切换：<a href="?role=control" style="color: #00f0ff;">控制端入口</a> | <a href="?role=display" style="color: #ff0055;">展场手机入口</a>
+  </div>
 
   <script>
+    // 1. 从 URL 读取角色：?role=display 或 ?role=control（默认控制端）
+    const urlParams = new URLSearchParams(window.location.search);
+    const role = urlParams.get('role') || 'control';
+
+    const roleTextEl = document.getElementById('role-text');
+    const statusDiv = document.getElementById('status');
+    const controlPanel = document.getElementById('control-panel');
+    const displayPanel = document.getElementById('display-panel');
+
+    // 2. 界面展示逻辑区分
+    if (role === 'display') {
+      roleTextEl.innerText = '展场设备 (接收端)';
+      roleTextEl.style.color = '#ff0055';
+      displayPanel.classList.remove('hidden');
+    } else {
+      roleTextEl.innerText = '观众 / 控制端';
+      roleTextEl.style.color = '#00f0ff';
+      controlPanel.classList.remove('hidden');
+    }
+
+    // 3. 建立 WebSocket 连接
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}`;
     const ws = new WebSocket(wsUrl);
-
-    const statusDiv = document.getElementById('status');
 
     ws.onopen = () => {
       statusDiv.innerText = '✅ WebSocket 已安全连接 (WSS)';
@@ -41,26 +80,33 @@
     };
 
     ws.onclose = () => {
-      statusDiv.innerText = '❌ 连接已断开，刷新页面重试';
+      statusDiv.innerText = '❌ 连接断开，刷新页面重试';
       statusDiv.style.color = '#e74c3c';
     };
 
-    // 发送指令给服务端
+    // 4. 解锁移动端浏览器的震动限制
+    function enableVibration() {
+      if ('vibrate' in navigator) {
+        navigator.vibrate([100, 50, 100]);
+      }
+      document.getElementById('unlock-status').style.display = 'block';
+    }
+
+    // 5. 控制端：发送广播指令
     function sendCommand(action) {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ action: action, timestamp: Date.now() }));
       }
     }
 
-    // 接收服务端广播的指令（作为展场手机运行）
+    // 6. 接收端：收到指令后的响应逻辑
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      console.log('接收到广播指令:', data);
+      console.log('收到实时广播:', data);
 
-      // 如果接收端是安卓手机，且收到震动指令
-      if (data.action === 'VIBRATE_PHONE') {
+      // 仅当当前设备被设置为 "展场设备 (display)" 且收到震动指令时触发
+      if (role === 'display' && data.action === 'VIBRATE_PHONE') {
         if ('vibrate' in navigator) {
-          // 触感模式：震动 200ms -> 停 100ms -> 震动 400ms
           navigator.vibrate([200, 100, 400]);
         }
       }
