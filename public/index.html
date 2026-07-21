@@ -2,112 +2,254 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kiss, or Dual Monitors - 诊断版</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-select=none">
+  <title>Kiss, or Dual Monitors</title>
   <style>
-    body { font-family: sans-serif; background: #000; color: #fff; padding: 20px; text-align: center; }
-    .card { background: #181818; border-radius: 12px; padding: 15px; margin: 15px auto; max-width: 400px; border: 1px solid #333; }
-    button { width: 100%; padding: 16px; margin: 8px 0; font-size: 16px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-    .btn-test { background: #9b59b6; color: white; }
-    .btn-vibrate { background: #e74c3c; color: white; }
-    .btn-green { background: #2ecc71; color: white; }
-    .btn-red { background: #e67e22; color: white; }
-    #log { background: #000; color: #00ff00; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; text-align: left; height: 120px; overflow-y: auto; border: 1px solid #444; margin-top: 10px; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0a0a0a; color: #eee; padding: 15px; margin: 0; text-align: center; }
+    
+    .card { background: #141416; border-radius: 16px; padding: 18px; margin: 12px auto; max-width: 420px; border: 1px solid #28282e; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #222; margin: 2px; }
+    .badge-status { background: #1a2a3a; color: #00f0ff; }
+    .badge-active { background: #2a1a2a; color: #ff0055; }
+    
+    button { width: 100%; padding: 16px; margin: 8px 0; font-size: 15px; border: none; border-radius: 10px; cursor: pointer; font-weight: 600; transition: all 0.15s ease; touch-action: none; }
+    button:active { transform: scale(0.98); opacity: 0.9; }
+    
+    .btn-unlock { background: #2563eb; color: white; font-size: 16px; font-weight: bold; }
+    .btn-hold { background: linear-gradient(135deg, #dc2626, #991b1b); color: white; user-select: none; }
+    .btn-heartbeat { background: #7c3aed; color: white; }
+    .btn-zepp-green { background: #059669; color: white; }
+    .btn-zepp-red { background: #d97706; color: white; }
+    
+    .status-box { font-size: 13px; color: #888; margin-top: 8px; line-height: 1.5; }
+    .hidden { display: none !important; }
+    
+    /* 模拟器心跳指示灯 */
+    .pulse-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #444; margin-right: 6px; }
+    .pulse-dot.active { background: #ff0055; box-shadow: 0 0 10px #ff0055; }
   </style>
 </head>
 <body>
 
-  <h2>Kiss, or Dual Monitors</h2>
+  <h2 style="margin-bottom: 5px; font-weight: 400; letter-spacing: 1px;">Kiss, or Dual Monitors</h2>
   
+  <!-- 全局状态栏 -->
   <div class="card">
-    <div>模式：<span id="role-text">...</span></div>
-    <div id="status" style="font-size: 13px; color: #aaa; margin-top: 5px;">连接中...</div>
+    <div>
+      <span id="role-text" class="badge badge-status">读取模式...</span>
+      <span id="device-state" class="badge badge-active">🔒 硬件未激活</span>
+    </div>
+    <div id="status" class="status-box">正在建立 WebSocket 连接...</div>
   </div>
 
-  <div class="card">
-    <h3 style="color: #00f0ff;">1. 本地震动强制诊断测试</h3>
-    <button class="btn-test" onclick="testDirectVibrate(500)">单次震动 (500ms)</button>
-    <button class="btn-test" onclick="testDirectVibrate(1000)">强力震动 (1000ms)</button>
+  <!-- 1. 展场接收端面板 (role=display) -->
+  <div id="display-panel" class="card hidden">
+    <h3 style="color: #ff0055; margin-top: 5px;">展场接收端 (Display)</h3>
+    <p style="color: #aaa; font-size: 13px;">请先点击下方按钮解锁安卓 Edge 底层马达权限：</p>
+    
+    <button class="btn-unlock" onclick="unlockDisplayDevice()">点击激活展场设备权限</button>
+
+    <div style="margin-top: 15px; border-top: 1px solid #222; padding-top: 12px; text-align: left;">
+      <div style="font-size: 13px; color: #888;">实时运行状态：</div>
+      <div style="font-size: 15px; color: #00f0ff; margin-top: 4px; font-weight: bold;">
+        <span id="pulse-indicator" class="pulse-dot"></span>
+        <span id="action-state-text">等待指令输入...</span>
+      </div>
+    </div>
   </div>
 
-  <div id="control-panel" class="card" style="display: none;">
-    <h3>2. 云端广播测试</h3>
-    <button class="btn-vibrate" onclick="sendCommand('VIBRATE_PHONE')">发送手机震动指令</button>
+  <!-- 2. 控制端面板 (role=control) -->
+  <div id="control-panel" class="card hidden">
+    <h3 style="color: #00f0ff; margin-top: 5px;">控制端 (Control)</h3>
+
+    <!-- 长按同步震动按钮 -->
+    <button id="btn-press-hold" class="btn-hold">
+      ✊ 长按此按钮：同步持续震动 (松开停止)
+    </button>
+
+    <!-- 随机心跳开关 -->
+    <button class="btn-heartbeat" onclick="sendCommand('TOGGLE_HEARTBEAT')">
+      💓 切换随机心跳模式 (呼吸/脉搏模拟)
+    </button>
+
+    <!-- 小米手环 7 (Zepp OS) 接口预留区 -->
+    <div style="margin-top: 20px; border-top: 1px solid #222; padding-top: 10px; text-align: left;">
+      <div style="font-size: 12px; color: #888; margin-bottom: 8px;">小米手环 7 (Zepp OS) 预留接口:</div>
+      <button class="btn-zepp-green" onclick="sendZeppCommand('ZEPP_GREEN_ON')">💚 触发手环绿光 (寻脉测量)</button>
+      <button class="btn-zepp-red" onclick="sendZeppCommand('ZEPP_RED_ON')">❤️ 触发手环红光 (血氧测量)</button>
+    </div>
   </div>
 
-  <div class="card">
-    <h3>运行日志诊断</h3>
-    <div id="log">等待操作...<br></div>
-  </div>
-
-  <div style="margin-top: 20px; font-size: 12px;">
-    <a href="?role=display" style="color: #ff0055;">[切换为展场接收端]</a> | 
-    <a href="?role=control" style="color: #00f0ff;">[切换为控制端]</a>
+  <!-- 底部链接切换 -->
+  <div style="margin-top: 25px; font-size: 12px; color: #555;">
+    快速切换模式：
+    <a href="?role=control" style="color: #00f0ff; text-decoration: none;">[控制端]</a> | 
+    <a href="?role=display" style="color: #ff0055; text-decoration: none;">[展场接收端]</a>
   </div>
 
   <script>
-    const logEl = document.getElementById('log');
-    function log(msg) {
-      logEl.innerHTML += `> ${msg}<br>`;
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-
+    // URL 参数解析
     const urlParams = new URLSearchParams(window.location.search);
-    const role = urlParams.get('role') || 'display';
-    document.getElementById('role-text').innerText = role === 'display' ? '展场接收端' : '控制端';
-    
-    if (role === 'control') {
-      document.getElementById('control-panel').style.display = 'block';
-    }
+    const role = urlParams.get('role') || 'control';
 
-    // 检查浏览器 API 支持情况
-    if ('vibrate' in navigator) {
-      log('✅ 浏览器支持 navigator.vibrate API');
-    } else {
-      log('❌ 当前浏览器完全不支持 navigator.vibrate');
-    }
+    const roleTextEl = document.getElementById('role-text');
+    const deviceStateEl = document.getElementById('device-state');
+    const statusDiv = document.getElementById('status');
+    const actionStateText = document.getElementById('action-state-text');
+    const pulseIndicator = document.getElementById('pulse-indicator');
 
-    // 本地直接震动测试（诊断函数）
-    function testDirectVibrate(ms) {
-      if (!('vibrate' in navigator)) {
-        log('❌ 无法震动：API 不存在');
-        return;
-      }
-      try {
-        // 采用最标准的单数字传参
-        const success = navigator.vibrate(ms);
-        log(`调用 vibrate(${ms}) -> 返回值: ${success}`);
-        if (!success) {
-          log('⚠️ 浏览器拒绝了震动请求(返回false)，可能是权限或静音模式拦截');
-        }
-      } catch (e) {
-        log(`❌ 抛出异常: ${e.message}`);
-      }
-    }
-
-    // WebSocket 逻辑
+    // WebSocket 初始化
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}`);
 
+    let isUnlocked = false;
+    let holdInterval = null;
+    let heartbeatTimer = null;
+    let isHeartbeatRunning = false;
+
+    // UI 模式渲染
+    if (role === 'display') {
+      roleTextEl.innerText = '展场设备 (Display)';
+      roleTextEl.style.color = '#ff0055';
+      document.getElementById('display-panel').classList.remove('hidden');
+    } else {
+      roleTextEl.innerText = '控制端 (Control)';
+      roleTextEl.style.color = '#00f0ff';
+      document.getElementById('control-panel').classList.remove('hidden');
+    }
+
     ws.onopen = () => {
-      document.getElementById('status').innerText = '✅ WebSocket 已连接';
-      log('WebSocket 已建立');
+      statusDiv.innerText = '✅ 云端 WebSocket 安全连通 (WSS)';
+      statusDiv.style.color = '#2ecc71';
     };
 
+    ws.onclose = () => {
+      statusDiv.innerText = '❌ 连接断开，请检查网络并刷新';
+      statusDiv.style.color = '#e74c3c';
+    };
+
+    // --- 展场接收端 (Display) 逻辑 --- //
+
+    // 激活底层马达权限
+    function unlockDisplayDevice() {
+      isUnlocked = true;
+      if ('vibrate' in navigator) {
+        navigator.vibrate(200);
+      }
+      deviceStateEl.innerText = '🔓 硬件已就绪';
+      deviceStateEl.style.background = '#064e3b';
+      deviceStateEl.style.color = '#34d399';
+      actionStateText.innerText = '待机中，准备接收指令...';
+    }
+
+    // 设置呼吸指示灯闪烁
+    function flashIndicator() {
+      pulseIndicator.classList.add('active');
+      setTimeout(() => pulseIndicator.classList.remove('active'), 150);
+    }
+
+    // 随机心跳发生器（仿生脉搏：双响 lub-dub + 随机休止）
+    function runRandomHeartbeat() {
+      if (!isHeartbeatRunning) return;
+
+      actionStateText.innerText = '💓 随机心跳模拟中...';
+      flashIndicator();
+
+      if (isUnlocked && 'vibrate' in navigator) {
+        // 仿心跳模式：80ms 震动 -> 60ms 停 -> 100ms 震动
+        navigator.vibrate([80, 60, 100]);
+      }
+
+      // 下一次心跳在 600ms - 1300ms 随机漂移
+      const nextDelay = Math.floor(Math.random() * 700) + 600;
+      heartbeatTimer = setTimeout(runRandomHeartbeat, nextDelay);
+    }
+
+    // 接收 WebSocket 广播指令
     ws.onmessage = (event) => {
       const data = JSON.parse(event.data);
-      log(`收到广播: ${data.action}`);
+      console.log('收到指令:', data);
 
-      if (role === 'display' && data.action === 'VIBRATE_PHONE') {
-        testDirectVibrate(600); // 接收到云端指令后触发 600ms 震动
+      if (role !== 'display') return;
+
+      // 1. 触发持续长按震动
+      if (data.action === 'HOLD_START') {
+        stopHeartbeatMode();
+        actionStateText.innerText = '⚡ 实时长按同步中...';
+        if (isUnlocked && 'vibrate' in navigator) {
+          if (holdInterval) clearInterval(holdInterval);
+          holdInterval = setInterval(() => {
+            navigator.vibrate(250);
+            flashIndicator();
+          }, 200);
+        }
+      } 
+      // 2. 停止长按震动
+      else if (data.action === 'HOLD_STOP') {
+        if (holdInterval) clearInterval(holdInterval);
+        if ('vibrate' in navigator) navigator.vibrate(0);
+        actionStateText.innerText = '待机中...';
+      } 
+      // 3. 切换随机心跳模式
+      else if (data.action === 'TOGGLE_HEARTBEAT') {
+        if (isHeartbeatRunning) {
+          stopHeartbeatMode();
+          actionStateText.innerText = '已关闭心跳模式';
+        } else {
+          isHeartbeatRunning = true;
+          runRandomHeartbeat();
+        }
       }
     };
 
+    function stopHeartbeatMode() {
+      isHeartbeatRunning = false;
+      if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    }
+
+
+    // --- 控制端 (Control) 逻辑 --- //
+
+    // 通用指令发送函数
     function sendCommand(action) {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ action: action }));
-        log(`已发送指令: ${action}`);
+        ws.send(JSON.stringify({ action: action, timestamp: Date.now() }));
       }
+    }
+
+    // 预留给 Zepp OS 手环的专用接口
+    function sendZeppCommand(zeppAction) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          target: 'zepp',
+          action: zeppAction,
+          timestamp: Date.now()
+        }));
+      }
+    }
+
+    // 长按绑定 (Pointer Events，同时兼容鼠标与手机触屏)
+    const holdBtn = document.getElementById('btn-press-hold');
+
+    if (holdBtn) {
+      holdBtn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        holdBtn.style.transform = 'scale(0.95)';
+        holdBtn.style.background = '#7f1d1d';
+        sendCommand('HOLD_START');
+      });
+
+      const releaseHold = (e) => {
+        e.preventDefault();
+        holdBtn.style.transform = 'none';
+        holdBtn.style.background = 'linear-gradient(135deg, #dc2626, #991b1b)';
+        sendCommand('HOLD_STOP');
+      };
+
+      holdBtn.addEventListener('pointerup', releaseHold);
+      holdBtn.addEventListener('pointerleave', releaseHold);
+      holdBtn.addEventListener('pointercancel', releaseHold);
     }
   </script>
 </body>
